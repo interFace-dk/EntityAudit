@@ -116,7 +116,10 @@ class AuditController extends Controller
      */
     public function viewDetailAction($className, $id, $rev)
     {
-        $ids = explode(',', $id);
+        $em = $this->getDoctrine()->getEntityManagerForClass($className);
+        $metadata = $em->getClassMetadata($className);
+        $ids = array_combine($metadata->identifier, explode(',', $id));
+
         $entity = $this->getAuditReader()->find($className, $ids, $rev);
 
         $data = $this->getAuditReader()->getEntityValues($className, $entity);
@@ -126,6 +129,7 @@ class AuditController extends Controller
             'id' => $id,
             'rev' => $rev,
             'className' => $className,
+            'metadata' => $metadata,
             'entity' => $entity,
             'data' => $data,
         ));
@@ -151,7 +155,9 @@ class AuditController extends Controller
             $newRev = $request->query->get('newRev');
         }
 
-        $ids = explode(',', $id);
+        $em = $this->getDoctrine()->getEntityManagerForClass($className);
+        $metadata = $em->getClassMetadata($className);
+        $ids = array_combine($metadata->identifier, explode(',', $id));
         $diff = $this->getAuditReader()->diff($className, $ids, $oldRev, $newRev);
 
         return $this->render('SimpleThingsEntityAuditBundle:Audit:compare.html.twig', array(
@@ -159,8 +165,8 @@ class AuditController extends Controller
             'id' => $id,
             'oldRev' => $oldRev,
             'newRev' => $newRev,
+            'metadata' => $metadata,
             'diff' => $diff,
         ));
     }
-
 }
