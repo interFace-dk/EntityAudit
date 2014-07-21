@@ -72,10 +72,6 @@ class AuditReader
         $class = $this->em->getClassMetadata($className);
         $tableName = $this->config->getTablePrefix() . $class->table['name'] . $this->config->getTableSuffix();
 
-        if (!is_array($id)) {
-            $id = array($class->identifier[0] => $id);
-        }
-
         $whereSQL  = "e." . $this->config->getRevisionFieldName() ." <= ?";
 
         foreach ($criteria as $criterion => $value) {
@@ -120,13 +116,13 @@ class AuditReader
         $values = array_merge(array($revision), array_values($criteria));
         $query = "SELECT " . $columnList . " FROM " . $tableName . " e WHERE " . $whereSQL . " ORDER BY e.rev DESC";
 
-        $revisionData = $this->em->getConnection()->fetchAssoc($query, $values);
+        $row = $this->em->getConnection()->fetchAssoc($query, $values);
 
         $entities = array();
-        foreach ($revisionData as &$row) {
+        foreach ($row as &$revision) {
             $ids = array();
             foreach ($class->identifier as $identifier) {
-                $ids[$identifier] = $row[$identifier];
+                $ids[$identifier] = $revision[$identifier];
             }
 
             $idKey = implode(',', $ids);
@@ -144,7 +140,7 @@ class AuditReader
                             $assocConditions[$inverseAssoc['fieldName']] = $ids[$joinColumn['referencedColumnName']];
                         }
 
-                        $row[$assoc['fieldName']] = $this->findBy($assoc['targetEntity'], $assocConditions, $revision, $depth - 1);
+                        $revision[$assoc['fieldName']] = $this->findBy($assoc['targetEntity'], $assocConditions, $revision, $depth - 1);
                     }
                 }
             }
