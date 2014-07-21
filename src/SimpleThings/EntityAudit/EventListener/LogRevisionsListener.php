@@ -221,6 +221,10 @@ class LogRevisionsListener implements EventSubscriber
             if (($assoc['type'] & ClassMetadata::TO_ONE) > 0 && $assoc['isOwningSide']) {
                 $targetClass = $this->em->getClassMetadata($assoc['targetEntity']);
 
+                if(is_object($entityData[$field])) {
+                    $this->saveRevisionRelatedEntity($entityData[$field]);
+                }
+
                 if ($entityData[$field] !== null) {
                     $relatedId = $this->uow->getEntityIdentifier($entityData[$field]);
                 }
@@ -249,5 +253,18 @@ class LogRevisionsListener implements EventSubscriber
         }
 
         $this->conn->executeUpdate($this->getInsertRevisionSQL($class), $params, $types);
+    }
+
+    private function saveRevisionRelatedEntity($entity)
+    {
+        $class = $this->em->getClassMetadata(get_class($entity));
+        if (!$this->metadataFactory->isAudited($class->name)) {
+            return;
+        }
+
+        if($entity) {
+            $entityData = array_merge($this->getOriginalEntityData($entity), $this->uow->getEntityIdentifier($entity));
+            $this->saveRevisionEntityData($class, $entityData, 'UPD');
+        }
     }
 }

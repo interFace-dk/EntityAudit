@@ -63,7 +63,7 @@ class AuditReader
      * @return array
      * @throws AuditException
      */
-    public function findBy($className, array $criteria, $revision, $depth = 0)
+    public function findBy($className, array $criteria, $revision)
     {
         if (!$this->metadataFactory->isAudited($className)) {
             throw AuditException::notAudited($className);
@@ -85,7 +85,6 @@ class AuditReader
         }
 
         $columnList = "";
-        $columnMap  = array();
 
         foreach ($class->fieldNames as $columnName => $field) {
             if ($columnList) {
@@ -93,9 +92,8 @@ class AuditReader
             }
 
             $type = Type::getType($class->fieldMappings[$field]['type']);
-            $columnList .= $type->convertToPHPValueSQL(
+            $columnList .= "e." . $type->convertToPHPValueSQL(
                 $class->getQuotedColumnName($field, $this->platform), $this->platform) .' AS ' . $field;
-            $columnMap[$field] = $this->platform->getSQLResultCasing($columnName);
         }
 
         foreach ($class->associationMappings AS $assoc) {
@@ -108,40 +106,54 @@ class AuditReader
                     $columnList .= ', ';
                 }
 
-                $columnList .= $sourceCol;
-                $columnMap[$sourceCol] = $this->platform->getSQLResultCasing($sourceCol);
+                $columnList .= "e.$sourceCol";
             }
+        }
+
+        if ($columnList) {
+            $columnList .= ", e.revtype AS revtype";
         }
 
         $values = array_merge(array($revision), array_values($criteria));
         $query = "SELECT " . $columnList . " FROM " . $tableName . " e WHERE " . $whereSQL . " ORDER BY e.rev DESC";
 
-        $row = $this->em->getConnection()->fetchAssoc($query, $values);
+        error_log($query);
+
+        $rows = $this->em->getConnection()->fetchAll($query, $values);
+
+        $deleted = array();
 
         $entities = array();
-        foreach ($row as &$revision) {
+        foreach ($rows as &$row) {
             $ids = array();
             foreach ($class->identifier as $identifier) {
-                $ids[$identifier] = $revision[$identifier];
+                $ids[$identifier] = $row[$identifier];
             }
 
             $idKey = implode(',', $ids);
+
+            if($row['revtype'] == 'DEL' || isset($deleted[$idKey])) {
+                $deleted[$idKey] = true;
+                unset($entities[$idKey]);
+                continue;
+            }
+
             if (isset($entities[$idKey])) {
                 continue;
             }
 
-            if ($depth > 0) {
-                foreach ($class->associationMappings AS $assoc) {
-                    if (($assoc['type'] & ClassMetadata::ONE_TO_MANY) > 0) {
-                        $inverseAssoc = $this->em->getClassMetadata($assoc['targetEntity'])->getAssociationMapping($assoc['mappedBy']);
+            unset($row['revtype']);
 
-                        $assocConditions = array();
-                        foreach ($inverseAssoc['joinColumns'] as $joinColumn) {
-                            $assocConditions[$inverseAssoc['fieldName']] = $ids[$joinColumn['referencedColumnName']];
-                        }
+            foreach ($class->associationMappings AS $assoc) {
+                if (($assoc['type'] & ClassMetadata::ONE_TO_MANY) > 0) {
+                    $inverseAssoc = $this->em->getClassMetadata($assoc['targetEntity'])->getAssociationMapping($assoc['mappedBy']);
 
-                        $revision[$assoc['fieldName']] = $this->findBy($assoc['targetEntity'], $assocConditions, $revision, $depth - 1);
+                    $assocConditions = array();
+                    foreach ($inverseAssoc['joinColumns'] as $joinColumn) {
+                        $assocConditions[$inverseAssoc['fieldName']] = $ids[$joinColumn['referencedColumnName']];
                     }
+
+                    $row[$assoc['fieldName']] = $this->findBy($assoc['targetEntity'], $assocConditions, $revision);
                 }
             }
 
@@ -163,7 +175,7 @@ class AuditReader
      * @param int $depth
      * @return object
      */
-    public function find($className, $id, $revision, $depth = 0)
+    public function find($className, $id, $revision)
     {
         $class = $this->em->getClassMetadata($className);
 
@@ -171,7 +183,7 @@ class AuditReader
             $id = array($class->identifier[0] => $id);
         }
 
-        $result = $this->findBy($className, $id, $revision, $depth);
+        $result = $this->findBy($className, $id, $revision);
 
         return reset($result);
     }
